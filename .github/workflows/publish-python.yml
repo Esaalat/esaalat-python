@@ -1,0 +1,39 @@
+name: Publish
+
+# Trusted publishing: PyPI verifies this workflow's OIDC identity, so there is
+# no API token to store or rotate. The pending publisher on PyPI must name this
+# file, this repository and the `pypi` environment exactly.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # required: mints the OIDC token PyPI exchanges
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test
+        run: python -m unittest discover -s tests -t .
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
