@@ -10,7 +10,7 @@
 from .client import DEFAULT_API_BASE, EsaalatClient, format_amount
 from .errors import EsaalatError, EsaalatWebhookError
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "DEFAULT_API_BASE",

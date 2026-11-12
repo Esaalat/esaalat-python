@@ -135,6 +135,59 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(caught.exception.detail, "Wallet not found.")
 
 
+class NotesFormTests(unittest.TestCase):
+    def test_create_intent_carries_the_form(self):
+        client, transport = _client(
+            (200, {}, {"access_token": TOKEN}),
+            (201, {}, {"id": "intent-1"}),
+        )
+
+        client.create_intent(wallet="wallet-1", amount=5000, notes_form="form-1")
+
+        self.assertEqual(
+            json.loads(transport.calls[1]["body"]),
+            {"wallet": "wallet-1", "amount": "5000", "notes_form": "form-1"},
+        )
+
+    def test_list_and_retrieve_forms(self):
+        form = {
+            "id": "form-1",
+            "name": "Delivery details",
+            "description": "",
+            "fields": [
+                {
+                    "id": "field_1",
+                    "type": "text",
+                    "label": "Order number",
+                    "placeholder": "",
+                    "required": True,
+                    "options": [],
+                }
+            ],
+            "intents_count": 3,
+        }
+        client, transport = _client(
+            (200, {}, {"access_token": TOKEN}),
+            (200, {}, {"count": 1, "next": None, "previous": None, "results": [form]}),
+            (200, {}, form),
+        )
+
+        page = client.list_notes_forms(search="delivery details", page_size=50)
+        self.assertEqual(page["results"][0]["fields"][0]["label"], "Order number")
+        self.assertTrue(
+            transport.calls[1]["url"].endswith(
+                "/merchant/notes-forms/?search=delivery+details&page_size=50"
+            )
+        )
+        self.assertEqual(transport.calls[1]["method"], "GET")
+
+        one = client.retrieve_notes_form("form-1")
+        self.assertEqual(one["id"], "form-1")
+        self.assertTrue(
+            transport.calls[2]["url"].endswith("/merchant/notes-forms/form-1/")
+        )
+
+
 class WebhookTests(unittest.TestCase):
     def test_verifies_a_signed_body(self):
         client, _ = _client((200, {}, {"access_token": TOKEN}))

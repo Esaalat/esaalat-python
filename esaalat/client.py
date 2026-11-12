@@ -23,6 +23,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from decimal import Decimal
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Union
@@ -211,8 +212,10 @@ class EsaalatClient:
         """Create a hosted checkout session and return the API's 201 payload.
 
         ``order_id``/``external_order_id`` become ``external_order_id``;
-        ``amount`` must be whole riyals. The browser only needs
-        ``session_token`` from the response.
+        ``amount`` must be whole riyals. ``notes_form`` takes a form id from
+        :meth:`list_notes_forms`, so the buyer answers that form's questions
+        at checkout and the answers arrive on the intent the session creates.
+        The browser only needs ``session_token`` from the response.
         """
         body = _session_body(input)
         return self._request(
@@ -224,13 +227,19 @@ class EsaalatClient:
         )
 
     def create_intent(self, **input: Any) -> Dict[str, Any]:
-        """Create a payment intent (server-driven orders: marketplaces, Shopify)."""
+        """Create a payment intent (server-driven orders: marketplaces, Shopify).
+
+        ``notes_form`` takes a form id from :meth:`list_notes_forms`; the buyer
+        then answers that form's questions on the checkout page, and the
+        answers come back on the intent as ``notes_answers``.
+        """
         body = {
             "wallet": input.get("wallet"),
             "currency": input.get("currency"),
             "external_order_id": input.get("order_id")
             or input.get("external_order_id"),
             "notes": input.get("notes"),
+            "notes_form": input.get("notes_form"),
         }
         if input.get("amount") is not None:
             body["amount"] = format_amount(input["amount"])
@@ -254,6 +263,27 @@ class EsaalatClient:
             "/merchant/intents/%s/" % intent_id,
             {"reference": reference},
         )
+
+    def list_notes_forms(self, **query: Any) -> Dict[str, Any]:
+        """The account's checkout question forms (paginated, read-only).
+
+        Pass ``search`` to match name/description, ``page`` and ``page_size``
+        (20 per page by default, 100 at most). Forms are authored in the
+        dashboard (Payments → Notes Forms); this is how a server finds the id
+        to send as ``notes_form`` on :meth:`create_intent`.
+        """
+        params = _query(
+            {
+                "search": query.get("search"),
+                "page": query.get("page"),
+                "page_size": query.get("page_size") or query.get("pageSize"),
+            }
+        )
+        return self._request("GET", "/merchant/notes-forms/" + params)
+
+    def retrieve_notes_form(self, form_id: str) -> Dict[str, Any]:
+        """One notes form, with its questions."""
+        return self._request("GET", "/merchant/notes-forms/%s/" % form_id)
 
     def verify_webhook(
         self,
@@ -413,6 +443,7 @@ def _session_body(input: Dict[str, Any]) -> Dict[str, Any]:
         or input.get("external_order_id"),
         "wallet": input.get("wallet"),
         "notes": input.get("notes"),
+        "notes_form": input.get("notes_form") or input.get("notesForm"),
     }
     if input.get("amount") is not None:
         body["amount"] = format_amount(input["amount"])
@@ -439,6 +470,18 @@ def _items(items: Any) -> list:
 def _prune(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return {key: value for key, value in (payload or {}).items()
             if value is not None}
+
+
+def _query(params: Dict[str, Any]) -> str:
+    """``?search=a&page=1`` — urlencoded, only the parameters passed."""
+    pairs = [
+        (key, str(value))
+        for key, value in params.items()
+        if value is not None and value != ""
+    ]
+    if not pairs:
+        return ""
+    return "?" + urllib.parse.urlencode(pairs)
 
 
 def _parse_signature(header: str) -> Tuple[int, str]:

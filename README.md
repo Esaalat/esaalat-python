@@ -49,8 +49,24 @@ def webhook():
 ```
 
 Also available: `create_intent(wallet=..., amount=..., order_id=...)`,
-`retrieve_intent(intent_id)`, `attach_reference(intent_id, reference)` and
+`retrieve_intent(intent_id)`, `attach_reference(intent_id, reference)`,
+`list_notes_forms(search=...)`, `retrieve_notes_form(form_id)` and
 `format_amount(value)`.
+
+### Checkout questions (notes forms)
+
+A notes form is a reusable set of questions built in the dashboard
+(Payments → Notes Forms). Pass its id and the hosted checkout asks them; the
+buyer's answers come back on the intent.
+
+```python
+form = esaalat.list_notes_forms()["results"][0]
+intent = esaalat.create_intent(wallet=wallet_id, amount=5000, notes_form=form["id"])
+
+current = esaalat.retrieve_intent(intent["id"])
+current["notes_form"]      # {"id", "name", "description"} or None
+current["notes_answers"]   # [{"id", "label", "type", "value"}] — empty until answered
+```
 
 ## What it handles for you
 
