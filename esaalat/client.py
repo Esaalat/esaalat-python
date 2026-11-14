@@ -240,6 +240,7 @@ class EsaalatClient:
             or input.get("external_order_id"),
             "notes": input.get("notes"),
             "notes_form": input.get("notes_form"),
+            "payee": input.get("payee"),
         }
         if input.get("amount") is not None:
             body["amount"] = format_amount(input["amount"])
@@ -284,6 +285,95 @@ class EsaalatClient:
     def retrieve_notes_form(self, form_id: str) -> Dict[str, Any]:
         """One notes form, with its questions."""
         return self._request("GET", "/merchant/notes-forms/%s/" % form_id)
+
+    def list_payees(self, **query: Any) -> Dict[str, Any]:
+        """The account's payees, paginated.
+
+        ``search`` matches name, external id and code; ``page`` and
+        ``page_size`` (20 default, 100 max) page through large lists.
+        """
+        params = _query(
+            {
+                "search": query.get("search"),
+                "page": query.get("page"),
+                "page_size": query.get("page_size") or query.get("pageSize"),
+            }
+        )
+        return self._request("GET", "/merchant/payees/" + params)
+
+    def create_payee(self, **input: Any) -> Dict[str, Any]:
+        """Create a payee, or update the one with the same external id.
+
+        ``external_id``/``externalId`` is your platform's own id for the
+        person: required, unique within the account, and immutable after
+        creation. ``wallets`` are payout destinations — ``provider``,
+        ``account_number``/``accountNumber`` and optional ``name`` — not
+        Esaalat receiving wallets.
+        """
+        external_id = str(
+            input.get("external_id") or input.get("externalId") or ""
+        ).strip()
+        if not external_id:
+            raise EsaalatError("external_id is required.", code="configuration")
+
+        body = _prune(
+            {
+                "external_id": external_id,
+                "name": input.get("name"),
+                "wallets": _payee_wallets(input.get("wallets")),
+                "is_active": input.get("is_active")
+                if input.get("is_active") is not None
+                else input.get("isActive"),
+            }
+        )
+        return self._request("POST", "/merchant/payees/", body)
+
+    def retrieve_payee(self, external_id: str) -> Dict[str, Any]:
+        """Read one payee by the platform's external id."""
+        return self._request(
+            "GET", "/merchant/payees/%s/" % urllib.parse.quote(external_id, safe="")
+        )
+
+    def update_payee(self, external_id: str, **input: Any) -> Dict[str, Any]:
+        """Update name, payout wallets or active state; the id cannot change."""
+        requested = input.get("external_id") or input.get("externalId")
+        if requested not in (None, "") and str(requested) != external_id:
+            raise EsaalatError(
+                "A payee external id cannot be changed after creation.",
+                code="configuration",
+            )
+        body = _prune(
+            {
+                "name": input.get("name"),
+                "wallets": _payee_wallets(input.get("wallets")),
+                "is_active": input.get("is_active")
+                if input.get("is_active") is not None
+                else input.get("isActive"),
+            }
+        )
+        return self._request(
+            "PATCH",
+            "/merchant/payees/%s/" % urllib.parse.quote(external_id, safe=""),
+            body,
+        )
+
+    def delete_payee(self, external_id: str) -> Dict[str, Any]:
+        """Remove a payee.
+
+        A payee with payments, ledger entries or withdrawals is deactivated
+        instead of hard-deleted, so its earnings history stays intact.
+        """
+        result = self._request(
+            "DELETE",
+            "/merchant/payees/%s/" % urllib.parse.quote(external_id, safe=""),
+        )
+        if result.get("deactivated"):
+            return {
+                "deleted": False,
+                "deactivated": True,
+                "id": result.get("id"),
+            }
+        return {"deleted": True, "deactivated": False}
 
     def verify_webhook(
         self,
@@ -444,6 +534,7 @@ def _session_body(input: Dict[str, Any]) -> Dict[str, Any]:
         "wallet": input.get("wallet"),
         "notes": input.get("notes"),
         "notes_form": input.get("notes_form") or input.get("notesForm"),
+        "payee": input.get("payee"),
     }
     if input.get("amount") is not None:
         body["amount"] = format_amount(input["amount"])
@@ -464,6 +555,24 @@ def _items(items: Any) -> list:
             "quantity": item.get("quantity"),
         }
         normalized.append(_prune(entry))
+    return normalized
+
+
+def _payee_wallets(wallets: Any) -> Optional[list]:
+    if wallets is None:
+        return None
+    normalized = []
+    for wallet in wallets:
+        normalized.append(
+            _prune(
+                {
+                    "provider": wallet.get("provider"),
+                    "account_number": wallet.get("accountNumber")
+                    or wallet.get("account_number"),
+                    "name": wallet.get("name"),
+                }
+            )
+        )
     return normalized
 
 

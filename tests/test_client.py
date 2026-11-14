@@ -188,6 +188,96 @@ class NotesFormTests(unittest.TestCase):
         )
 
 
+class PayeeTests(unittest.TestCase):
+    payee = {
+        "id": "payee-1",
+        "external_id": "person-a",
+        "name": "Person A",
+        "code": "person-a",
+        "currency": "YER",
+        "wallets": [
+            {"provider": "KURAIMI", "account_number": "771234567"}
+        ],
+        "is_active": True,
+    }
+
+    def test_crud_by_external_id(self):
+        client, transport = _client(
+            (200, {}, {"access_token": TOKEN}),
+            (201, {}, self.payee),
+            (200, {}, {"count": 1, "next": None, "previous": None, "results": [self.payee]}),
+            (200, {}, {**self.payee, "name": "Person A2"}),
+            (200, {}, {"deactivated": True, "id": "payee-1"}),
+            (204, {}, b""),
+        )
+
+        created = client.create_payee(
+            externalId="person-a",
+            name="Person A",
+            wallets=[
+                {"provider": "kuraimi", "accountNumber": "771234567"}
+            ],
+        )
+        self.assertEqual(created["external_id"], "person-a")
+        self.assertEqual(
+            json.loads(transport.calls[1]["body"]),
+            {
+                "external_id": "person-a",
+                "name": "Person A",
+                "wallets": [
+                    {"provider": "kuraimi", "account_number": "771234567"}
+                ],
+            },
+        )
+
+        page = client.list_payees(search="person a", pageSize=25)
+        self.assertEqual(page["count"], 1)
+        self.assertTrue(
+            transport.calls[2]["url"].endswith(
+                "/merchant/payees/?search=person+a&page_size=25"
+            )
+        )
+
+        client.update_payee(
+            "person-a",
+            wallets=[{"provider": "JAIB", "accountNumber": "770000000"}],
+        )
+        self.assertEqual(transport.calls[3]["method"], "PATCH")
+        self.assertNotIn("external_id", json.loads(transport.calls[3]["body"]))
+
+        self.assertEqual(
+            client.delete_payee("person-a"),
+            {"deleted": False, "deactivated": True, "id": "payee-1"},
+        )
+        self.assertEqual(transport.calls[4]["method"], "DELETE")
+        self.assertEqual(
+            client.delete_payee("person-a"),
+            {"deleted": True, "deactivated": False},
+        )
+
+    def test_external_id_cannot_change(self):
+        client, _ = _client((200, {}, {"access_token": TOKEN}))
+
+        with self.assertRaises(EsaalatError) as caught:
+            client.update_payee("person-a", externalId="person-b")
+
+        self.assertEqual(caught.exception.code, "configuration")
+
+    def test_payee_is_sent_on_intents(self):
+        client, transport = _client(
+            (200, {}, {"access_token": TOKEN}),
+            (201, {}, {"id": "intent-1"}),
+        )
+
+        client.create_intent(
+            wallet="wallet-1", amount=5000, payee="person-a"
+        )
+
+        self.assertEqual(
+            json.loads(transport.calls[1]["body"])["payee"], "person-a"
+        )
+
+
 class WebhookTests(unittest.TestCase):
     def test_verifies_a_signed_body(self):
         client, _ = _client((200, {}, {"access_token": TOKEN}))

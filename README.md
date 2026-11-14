@@ -50,8 +50,9 @@ def webhook():
 
 Also available: `create_intent(wallet=..., amount=..., order_id=...)`,
 `retrieve_intent(intent_id)`, `attach_reference(intent_id, reference)`,
-`list_notes_forms(search=...)`, `retrieve_notes_form(form_id)` and
-`format_amount(value)`.
+`list_notes_forms(search=...)`, `retrieve_notes_form(form_id)`,
+`list_payees()`, `create_payee()`, `retrieve_payee()`, `update_payee()`,
+`delete_payee()` and `format_amount(value)`.
 
 ### Checkout questions (notes forms)
 
@@ -67,6 +68,49 @@ current = esaalat.retrieve_intent(intent["id"])
 current["notes_form"]      # {"id", "name", "description"} or None
 current["notes_answers"]   # [{"id", "label", "type", "value"}] — empty until answered
 ```
+
+### Payees and payout wallets
+
+A payee is the person inside your account who earns from a payment. Create
+them with **your own id** and their payout wallets; then pass that id as
+`payee` when creating the payment. The external id is immutable after
+creation, and wallets are payee metadata — not Esaalat receiving wallets.
+
+```python
+payee = esaalat.create_payee(
+    external_id="user-42",
+    name="Ahmed Ali",
+    wallets=[
+        {"provider": "KURAIMI", "accountNumber": "771234567", "name": "Main"}
+    ],
+)
+
+intent = esaalat.create_intent(
+    wallet="<receiving-wallet-uuid>",
+    amount=5000,
+    payee=payee["external_id"],
+)
+```
+
+`create_payee()` is an **upsert**: posting the same external id updates that
+payee and returns it, so a platform can safely sync its people. The rest of
+the surface is ordinary CRUD:
+
+```python
+page = esaalat.list_payees(search="Ahmed", page_size=50)
+one = esaalat.retrieve_payee("user-42")
+updated = esaalat.update_payee(
+    "user-42",
+    wallets=[{"provider": "JAIB", "accountNumber": "770000000"}],
+)
+removed = esaalat.delete_payee("user-42")
+# {"deleted": False, "deactivated": True, "id": ...} when payments or
+# withdrawals reference the payee; {"deleted": True} when it had no history.
+```
+
+Providers are the enum Esaalat supports (for example `KURAIMI`, `JAIB`,
+`ONE_CASH`); `TEST` is not a payout destination. Duplicate
+provider/account-number pairs are rejected.
 
 ## What it handles for you
 
